@@ -5,7 +5,7 @@ const prisma = require('../prisma/prismaClient');
 //////////////////////////////////////////////////////
 exports.createDashboard = async (req, res) => {
   try {
-    if (req.user.role !== "ADMIN") {
+    if (!["SUPER_ADMIN", "ADMIN"].includes(req.user.role)) {
       return res.status(403).json({
         message: "Only ADMIN can create dashboards"
       });
@@ -19,14 +19,17 @@ exports.createDashboard = async (req, res) => {
       });
     }
 
-    const dashboard = await prisma.dashboard.create({
-      data: {
-        name,
-        description,
-        image,
-        createdById: req.user.id
-      }
-    });
+const dashboard = await prisma.dashboard.create({
+  data: {
+    name,
+    description,
+    image,
+    createdById: req.user.id
+  }
+});
+
+// 🔥 ADD THIS
+req.body.dashboardName = dashboard.name;
 
     res.json({
       message: "Dashboard created successfully",
@@ -37,13 +40,54 @@ exports.createDashboard = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
+//////////////////////////////////////////////////////
+// ✏️ UPDATE DASHBOARD
+//////////////////////////////////////////////////////
+exports.updateDashboard = async (req, res) => {
+  try {
+    if (!["SUPER_ADMIN", "ADMIN"].includes(req.user.role)) {
+      return res.status(403).json({
+        message: "Only ADMIN can update dashboard"
+      });
+    }
 
-//////////////////////////////////////////////////////
-// ➕ ADD COLUMNS
-//////////////////////////////////////////////////////
+    const dashboardId = Number(req.params.id);
+    const { name, description, image } = req.body;
+
+    const dashboard = await prisma.dashboard.findUnique({
+      where: { id: dashboardId }
+    });
+
+    if (!dashboard) {
+      return res.status(404).json({
+        message: "Dashboard not found"
+      });
+    }
+
+const updated = await prisma.dashboard.update({
+  where: { id: dashboardId },
+  data: {
+    name: name ?? dashboard.name,
+    description: description ?? dashboard.description,
+    image: image ?? dashboard.image
+  }
+});
+
+// 🔥 ADD THIS
+req.body.dashboardName = updated.name;
+
+    res.json({
+      message: "Dashboard updated successfully",
+      dashboard: updated
+    });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
 exports.addColumns = async (req, res) => {
   try {
-    if (req.user.role !== "ADMIN") {
+    if (!["SUPER_ADMIN", "ADMIN"].includes(req.user.role)) {
       return res.status(403).json({
         message: "Only ADMIN can add columns"
       });
@@ -77,10 +121,13 @@ exports.addColumns = async (req, res) => {
       });
     }
 
-    // 🔒 Check dashboard exists
-    const dashboard = await prisma.dashboard.findUnique({
-      where: { id: dashboardId }
-    });
+const dashboard = await prisma.dashboard.findUnique({
+  where: { id: dashboardId }
+});
+
+// 🔥 ADD THIS
+req.body = req.body || {};
+req.body.dashboardName = dashboard?.name;
 
     if (!dashboard) {
       return res.status(404).json({
@@ -97,9 +144,9 @@ exports.addColumns = async (req, res) => {
         required: col.required || false
       }))
     });
+req.body.columnName = columns[0]?.columnKey;
 
     res.json({ message: "Columns added successfully" });
-
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -194,8 +241,128 @@ exports.addWidgets = async (req, res) => {
   }
 };
 //////////////////////////////////////////////////////
-// 📄 GET DASHBOARDS
+// 📊 GET WIDGETS (CHARTS) BY DASHBOARD
 //////////////////////////////////////////////////////
+exports.getWidgets = async (req, res) => {
+  try {
+    const dashboardId = Number(req.params.id);
+
+    //////////////////////////////////////////////////////
+    // ✅ CHECK DASHBOARD EXISTS
+    //////////////////////////////////////////////////////
+    const dashboard = await prisma.dashboard.findUnique({
+      where: { id: dashboardId }
+    });
+
+    if (!dashboard) {
+      return res.status(404).json({
+        message: "Dashboard not found"
+      });
+    }
+
+    //////////////////////////////////////////////////////
+    // 🔥 FETCH WIDGETS
+    //////////////////////////////////////////////////////
+    const widgets = await prisma.widget.findMany({
+      where: { dashboardId },
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        name: true,
+        type: true,
+        config: true,
+        createdAt: true
+      }
+    });
+
+    //////////////////////////////////////////////////////
+    // ✅ RESPONSE
+    //////////////////////////////////////////////////////
+    res.json({
+      dashboardId,
+      total: widgets.length,
+      charts: widgets
+    });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+exports.updateWidget = async (req, res) => {
+  try {
+    const widgetId = Number(req.params.widgetId);
+    const { name, type, config } = req.body;
+
+    const widget = await prisma.widget.findUnique({
+      where: { id: widgetId }
+    });
+
+    if (!widget) {
+      return res.status(404).json({
+        message: "Widget not found"
+      });
+    }
+
+    //////////////////////////////////////////////////////
+    // 🔥 VALIDATE TYPE
+    //////////////////////////////////////////////////////
+    const updatedType = type ? type.toUpperCase() : widget.type;
+
+    //////////////////////////////////////////////////////
+    // 🔥 MERGE CONFIG
+    //////////////////////////////////////////////////////
+    const updatedConfig = {
+      ...(widget.config || {}),
+      ...(config || {})
+    };
+
+    const updated = await prisma.widget.update({
+      where: { id: widgetId },
+      data: {
+        name: name ?? widget.name,
+        type: updatedType,
+        config: updatedConfig
+      }
+    });
+
+    res.json({
+      message: "Widget updated successfully",
+      widget: updated
+    });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+//////////////////////////////////////////////////////
+// ❌ DELETE WIDGET
+//////////////////////////////////////////////////////
+exports.deleteWidget = async (req, res) => {
+  try {
+    const widgetId = Number(req.params.widgetId);
+
+    const widget = await prisma.widget.findUnique({
+      where: { id: widgetId }
+    });
+
+    if (!widget) {
+      return res.status(404).json({
+        message: "Widget not found"
+      });
+    }
+
+    await prisma.widget.delete({
+      where: { id: widgetId }
+    });
+
+    res.json({
+      message: "Widget deleted successfully"
+    });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
 exports.getDashboards = async (req, res) => {
   try {
     const dashboards = await prisma.dashboard.findMany({
@@ -245,9 +412,9 @@ exports.getDashboardById = async (req, res) => {
 //////////////////////////////////////////////////////
 exports.deleteDashboard = async (req, res) => {
   try {
-    if (req.user.role !== "ADMIN") {
+    if (!["SUPER_ADMIN", "ADMIN"].includes(req.user.role)) {
       return res.status(403).json({
-        message: "Only ADMIN can delete dashboards"
+        message: "Only ADMIN and SUPER_ADMIN can delete dashboards"
       });
     }
 
@@ -274,10 +441,38 @@ exports.updateColumn = async (req, res) => {
     //////////////////////////////////////////////////////
     // ✅ FIND COLUMN
     //////////////////////////////////////////////////////
-    const column = await prisma.dashboardColumn.findUnique({
-      where: { id: columnId }
-    });
+ const column = await prisma.dashboardColumn.findUnique({
+  where: { id: columnId }
+});
 
+if (!column) {
+  return res.status(404).json({ message: "Column not found" });
+}
+
+// 🔥 ADD THIS BLOCK
+const dashboard = await prisma.dashboard.findUnique({
+  where: { id: column.dashboardId }
+});
+
+req.body = req.body || {};
+req.body.dashboardName = dashboard?.name;
+req.body.columnName = column.columnKey;
+
+req.body.oldValue = {
+  columnKey: column.columnKey,
+  displayName: column.displayName,
+  dataType: column.dataType,
+  required: column.required
+};
+//////////////////////////////////////////////////////
+// 🔥 TRACK NEW VALUES
+//////////////////////////////////////////////////////
+req.body.newValue = {
+  columnKey: columnKey ?? column.columnKey,
+  displayName: displayName ?? column.displayName,
+  dataType: dataType ?? column.dataType,
+  required: required ?? column.required
+};
     if (!column) {
       return res.status(404).json({ message: "Column not found" });
     }
@@ -307,7 +502,6 @@ exports.updateColumn = async (req, res) => {
       const widgets = await prisma.widget.findMany({
         where: { dashboardId: column.dashboardId }
       });
-
       for (const w of widgets) {
         let config = w.config || {};
 
@@ -362,16 +556,22 @@ exports.deleteColumn = async (req, res) => {
   try {
     const columnId = Number(req.params.columnId);
 
-    //////////////////////////////////////////////////////
-    // ✅ FIND COLUMN
-    //////////////////////////////////////////////////////
-    const column = await prisma.dashboardColumn.findUnique({
-      where: { id: columnId }
-    });
+const column = await prisma.dashboardColumn.findUnique({
+  where: { id: columnId }
+});
 
-    if (!column) {
-      return res.status(404).json({ message: "Column not found" });
-    }
+if (!column) {
+  return res.status(404).json({ message: "Column not found" });
+}
+
+// 🔥 ADD THIS HERE
+const dashboard = await prisma.dashboard.findUnique({
+  where: { id: column.dashboardId }
+});
+
+req.body = req.body || {};
+req.body.dashboardName = dashboard?.name;
+req.body.columnName = column.columnKey;
 
     //////////////////////////////////////////////////////
     // 🔥 CLEAN WIDGET CONFIG (IMPORTANT)
