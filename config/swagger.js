@@ -30,13 +30,11 @@ const options = {
       },
     ],
 
+    // ✅ Production Safe (Auto Detect Server)
     servers: [
       {
-       url:
-          process.env.NODE_ENV === "production"
-            ? "https://dashboard-backend-cyrd.onrender.com"
-            : `http://localhost:${PORT}`,
-        description: "Server",
+        url: "/",
+        description: "Auto-detect server",
       },
     ],
   },
@@ -46,11 +44,6 @@ const options = {
 
 const swaggerSpec = swaggerJSDoc(options);
 
-//const swaggerSetup = (app) => {
-//  app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
-//
-//  console.log(`Swagger → http://localhost:${PORT}/api-docs`);
-//};
 const swaggerSetup = (app) => {
   app.use("/api-docs", swaggerUi.serve);
 
@@ -58,9 +51,6 @@ const swaggerSetup = (app) => {
     "/api-docs",
     swaggerUi.setup(swaggerSpec, {
       explorer: true,
-      swaggerOptions: {
-        url: "/api-docs/swagger.json",
-      },
     })
   );
 
@@ -68,7 +58,7 @@ const swaggerSetup = (app) => {
     res.json(swaggerSpec);
   });
 
-  console.log(`Swagger → http://localhost:${PORT}/api-docs`);
+  console.log(`Swagger running at /api-docs`);
 };
 
 module.exports = { swaggerSetup };
